@@ -17,17 +17,17 @@ def main():
     print("データを取得中...\n")
     
     # 1. 各データの取得
-    stock_info = get_stock_data(STOCK_CODE)
-    qiita_info = get_qiita_trend()
+    stock_info: str = get_stock_data(STOCK_CODE)
+    qiita_info: str = get_qiita_trend()
     
     # 2. メッセージの結合
-    message_text = f"☀️ おはようございます！本日のレポートです。\n\n{stock_info}\n\n{qiita_info}"
+    message_text: str = f"☀️ おはようございます！本日のレポートです。\n\n{stock_info}\n\n{qiita_info}"
     
     print("【LINEに送信しています...】")
     
     # 3. LINEへの送信
     try:
-        line_bot_api = LineBotApi(CHANNEL_ACCESS_TOKEN)
+        line_bot_api: LineBotApi = LineBotApi(CHANNEL_ACCESS_TOKEN)
         line_bot_api.push_message(USER_ID, TextSendMessage(text=message_text))
         print("✅ 送信完了しました！スマホのLINEを確認してください。")
     except LineBotApiError as e:
