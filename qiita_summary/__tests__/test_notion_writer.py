@@ -54,6 +54,68 @@ def test_create_summary_page_splits_long_summary(mock_post):
 
 
 @patch.object(notion_writer.requests, "post")
+def test_page_exists_with_url_found(mock_post):
+    """同一URLのページが既に存在する場合のテスト"""
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {"results": [{"id": "page-1"}]}
+    mock_post.return_value = mock_response
+
+    result = notion_writer.page_exists_with_url(
+        token="tok", database_id="db", url="https://qiita.com/test"
+    )
+
+    assert result is True
+    assert mock_post.call_args.args[0].endswith("/databases/db/query")
+    payload = mock_post.call_args.kwargs["json"]
+    assert payload["filter"] == {
+        "property": notion_writer.PROP_URL,
+        "url": {"equals": "https://qiita.com/test"},
+    }
+
+
+@patch.object(notion_writer.requests, "post")
+def test_page_exists_with_url_not_found(mock_post):
+    """同一URLのページが存在しない場合のテスト"""
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {"results": []}
+    mock_post.return_value = mock_response
+
+    result = notion_writer.page_exists_with_url(
+        token="tok", database_id="db", url="https://qiita.com/test"
+    )
+
+    assert result is False
+
+
+@patch.object(notion_writer.requests, "post")
+def test_page_exists_with_url_query_error(mock_post):
+    """重複チェックのクエリが失敗した場合は未登録扱いにするテスト"""
+    mock_response = MagicMock()
+    mock_response.status_code = 400
+    mock_response.text = "bad request"
+    mock_post.return_value = mock_response
+
+    result = notion_writer.page_exists_with_url(
+        token="tok", database_id="db", url="https://qiita.com/test"
+    )
+
+    assert result is False
+
+
+@patch.object(notion_writer.requests, "post")
+def test_page_exists_with_url_empty_url(mock_post):
+    """URLが空の場合はクエリせず未登録扱いにするテスト"""
+    result = notion_writer.page_exists_with_url(
+        token="tok", database_id="db", url=""
+    )
+
+    assert result is False
+    mock_post.assert_not_called()
+
+
+@patch.object(notion_writer.requests, "post")
 def test_create_summary_page_failure(mock_post):
     """Notionがエラーを返した場合のテスト"""
     mock_response = MagicMock()

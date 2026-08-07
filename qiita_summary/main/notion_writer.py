@@ -32,6 +32,41 @@ def _paragraph_blocks(text: str) -> list[dict]:
     return blocks
 
 
+def page_exists_with_url(token: str, database_id: str, url: str) -> bool:
+    """
+    同じURLのページがNotionデータベースに既に存在するか判定する。
+    存在すれば True。URLが空、またはクエリに失敗した場合は False を返す
+    （書き込みを止めてしまわないよう、判定できないときは「未登録」扱いにする）。
+    """
+    if not url:
+        return False
+
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Notion-Version": NOTION_API_VERSION,
+        "Content-Type": "application/json",
+    }
+
+    payload = {
+        "filter": {"property": PROP_URL, "url": {"equals": url}},
+        "page_size": 1,
+    }
+
+    response = requests.post(
+        f"{NOTION_API_BASE}/databases/{database_id}/query",
+        headers=headers,
+        json=payload,
+    )
+
+    if response.status_code != 200:
+        print(
+            f"[WARN] Notion重複チェックに失敗しました (status: {response.status_code})\n{response.text}"
+        )
+        return False
+
+    return bool(response.json().get("results"))
+
+
 def create_summary_page(
     token: str,
     database_id: str,
