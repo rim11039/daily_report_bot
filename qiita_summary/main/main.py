@@ -4,7 +4,7 @@ from datetime import datetime
 from dotenv import load_dotenv
 from qiita_checker import get_qiita_trend_items
 from gemini_summarizer import summarize_article
-from notion_writer import create_summary_page
+from notion_writer import create_summary_page, page_exists_with_url
 from linebot import LineBotApi
 from linebot.models import TextSendMessage
 from linebot.exceptions import LineBotApiError
@@ -37,6 +37,14 @@ def main():
         title = article["title"]
         url = article["url"]
         likes = article["likes"]
+
+        # 同一URLのページが既にNotionにある場合は要約も書き込みも行わない
+        if page_exists_with_url(NOTION_TOKEN, QIITA_SUMMARY_DATABASE_ID, url):
+            print(f"[{i}/{len(articles)}] 登録済みのためスキップ: {title}")
+            line_lines.append(f"{i}. {title} (LGTM: {likes})")
+            line_lines.append("（登録済みのためスキップ）")
+            line_lines.append(f"{url}\n")
+            continue
 
         print(f"[{i}/{len(articles)}] 要約中: {title}")
         summary = summarize_article(title, article["body"])
