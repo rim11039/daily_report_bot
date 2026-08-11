@@ -53,66 +53,101 @@ def test_create_summary_page_splits_long_summary(mock_post):
     assert len(payload["children"]) == 2
 
 
+def _url_page(url: str) -> dict:
+    """登録済みURLを1件持つNotionページのレスポンスを作る"""
+    return {"properties": {notion_writer.PROP_URL: {"url": url}}}
+
+
 @patch.object(notion_writer.requests, "post")
-def test_page_exists_with_url_found(mock_post):
-    """同一URLのページが既に存在する場合のテスト"""
+def test_fetch_registered_urls_success(mock_post):
+    """登録済みURLを一括取得できた場合のテスト"""
     mock_response = MagicMock()
     mock_response.status_code = 200
-    mock_response.json.return_value = {"results": [{"id": "page-1"}]}
-    mock_post.return_value = mock_response
-
-    result = notion_writer.page_exists_with_url(
-        token="tok", database_id="db", url="https://qiita.com/test"
-    )
-
-    assert result is True
-    assert mock_post.call_args.args[0].endswith("/databases/db/query")
-    payload = mock_post.call_args.kwargs["json"]
-    assert payload["filter"] == {
-        "property": notion_writer.PROP_URL,
-        "url": {"equals": "https://qiita.com/test"},
+    mock_response.json.return_value = {
+        "results": [
+            _url_page("https://qiita.com/a"),
+            _url_page("https://qiita.com/b"),
+        ],
+        "has_more": False,
     }
+    mock_post.return_value = mock_response
+
+    result = notion_writer.fetch_registered_urls(token="tok", database_id="db")
+
+    assert result == {"https://qiita.com/a", "https://qiita.com/b"}
+    # 1ページで収まる場合はリクエストも1回で済む
+    assert mock_post.call_count == 1
+    assert mock_post.call_args.args[0].endswith("/databases/db/query")
 
 
 @patch.object(notion_writer.requests, "post")
-def test_page_exists_with_url_not_found(mock_post):
-    """同一URLのページが存在しない場合のテスト"""
+def test_fetch_registered_urls_paginates(mock_post):
+    """has_moreがTrueの場合に次ページまで辿るテスト"""
+    first = MagicMock()
+    first.status_code = 200
+    first.json.return_value = {
+        "results": [_url_page("https://qiita.com/a")],
+        "has_more": True,
+        "next_cursor": "cursor-1",
+    }
+    second = MagicMock()
+    second.status_code = 200
+    second.json.return_value = {
+        "results": [_url_page("https://qiita.com/b")],
+        "has_more": False,
+    }
+    mock_post.side_effect = [first, second]
+
+    result = notion_writer.fetch_registered_urls(token="tok", database_id="db")
+
+    assert result == {"https://qiita.com/a", "https://qiita.com/b"}
+    assert mock_post.call_count == 2
+    # 2ページ目は前ページのカーソルを引き継ぐ
+    assert mock_post.call_args.kwargs["json"]["start_cursor"] == "cursor-1"
+
+
+@patch.object(notion_writer.requests, "post")
+def test_fetch_registered_urls_skips_pages_without_url(mock_post):
+    """URLプロパティが空のページは無視するテスト"""
     mock_response = MagicMock()
     mock_response.status_code = 200
-    mock_response.json.return_value = {"results": []}
+    mock_response.json.return_value = {
+        "results": [
+            _url_page("https://qiita.com/a"),
+            {"properties": {notion_writer.PROP_URL: {"url": None}}},
+            {"properties": {}},
+        ],
+        "has_more": False,
+    }
     mock_post.return_value = mock_response
 
-    result = notion_writer.page_exists_with_url(
-        token="tok", database_id="db", url="https://qiita.com/test"
-    )
+    result = notion_writer.fetch_registered_urls(token="tok", database_id="db")
 
-    assert result is False
+    assert result == {"https://qiita.com/a"}
 
 
 @patch.object(notion_writer.requests, "post")
-def test_page_exists_with_url_query_error(mock_post):
-    """重複チェックのクエリが失敗した場合は未登録扱いにするテスト"""
+def test_fetch_registered_urls_query_error(mock_post):
+    """クエリが失敗した場合は空セットではなくNoneを返すテスト"""
     mock_response = MagicMock()
-    mock_response.status_code = 400
-    mock_response.text = "bad request"
+    mock_response.status_code = 429
+    mock_response.text = "rate limited"
     mock_post.return_value = mock_response
 
-    result = notion_writer.page_exists_with_url(
-        token="tok", database_id="db", url="https://qiita.com/test"
-    )
+    result = notion_writer.fetch_registered_urls(token="tok", database_id="db")
 
-    assert result is False
+    # 空セットを返すと全記事が未登録扱いになり重複を作るため、Noneで区別する
+    assert result is None
 
 
 @patch.object(notion_writer.requests, "post")
-def test_page_exists_with_url_empty_url(mock_post):
-    """URLが空の場合はクエリせず未登録扱いにするテスト"""
-    result = notion_writer.page_exists_with_url(
-        token="tok", database_id="db", url=""
-    )
+def test_fetch_registered_urls_network_error(mock_post):
+    """ネットワークエラーが発生した場合もNoneを返すテスト"""
+    mock_post.side_effect = notion_writer.requests.exceptions.RequestException("boom")
 
-    assert result is False
-    mock_post.assert_not_called()
+    result = notion_writer.fetch_registered_urls(token="tok", database_id="db")
+
+    assert result is None
 
 
 @patch.object(notion_writer.requests, "post")
