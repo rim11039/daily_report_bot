@@ -2,7 +2,7 @@ import requests
 from datetime import datetime, timedelta
 
 
-def get_qiita_trend_items(per_page: int = 3) -> list[dict]:
+def get_qiita_trend_items() -> list[dict]:
     """
     Qiitaから直近1週間でLGTM数が多い記事を取得する。
     本文(body)を含む構造化データのリストを返す。
@@ -19,7 +19,6 @@ def get_qiita_trend_items(per_page: int = 3) -> list[dict]:
     url: str = "https://qiita.com/api/v2/items"
     params: dict = {
         "page": 1,
-        "per_page": per_page,
         "query": query,
     }
 
