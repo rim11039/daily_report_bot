@@ -12,6 +12,77 @@ PROP_DATE = "取得日"
 # Notionの1テキストブロックあたりの文字数上限
 NOTION_TEXT_LIMIT = 2000
 
+# 1回のクエリで取得するページ数 (NotionAPIの上限は100)
+NOTION_PAGE_SIZE = 100
+
+# ページネーションの上限 (万一 has_more が下がらない場合の無限ループ防止)
+MAX_QUERY_PAGES = 50
+
+# APIの応答を待つ上限秒数 (未指定だと応答がない場合に処理が止まり続ける)
+REQUEST_TIMEOUT = 30
+
+
+def fetch_registered_urls(token: str, database_id: str) -> set[str] | None:
+    """
+    Notionデータベースに登録済みのURLをまとめて取得する。
+
+    記事ごとに問い合わせるとNotionのレート制限(毎秒3リクエスト程度)に掛かり、
+    429を「未登録」と誤判定して重複ページを作ってしまう。
+    それを避けるため起動時に1度だけ取得し、以降はこのセットで判定する。
+
+    取得に失敗した場合は None を返す。「登録が1件も無い」ことを表す空セットと
+    区別できるようにしてあるので、呼び出し側は None を「判定不能」として扱い、
+    重複を作らないよう処理を中止すること。
+    """
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Notion-Version": NOTION_API_VERSION,
+        "Content-Type": "application/json",
+    }
+
+    urls: set[str] = set()
+    start_cursor: str | None = None
+
+    for _ in range(MAX_QUERY_PAGES):
+        payload: dict = {"page_size": NOTION_PAGE_SIZE}
+        # 2ページ目以降は前回の続きから取得する
+        if start_cursor:
+            payload["start_cursor"] = start_cursor
+
+        try:
+            response = requests.post(
+                f"{NOTION_API_BASE}/databases/{database_id}/query",
+                headers=headers,
+                json=payload,
+                timeout=REQUEST_TIMEOUT,
+            )
+        except requests.exceptions.RequestException as e:
+            print(f"[ERROR] Notion登録済みURLの取得に失敗しました: {e}")
+            return None
+
+        if response.status_code != 200:
+            print(
+                f"[ERROR] Notion登録済みURLの取得に失敗しました "
+                f"(status: {response.status_code})\n{response.text}"
+            )
+            return None
+
+        data = response.json()
+        for page in data.get("results", []):
+            url = page.get("properties", {}).get(PROP_URL, {}).get("url")
+            if url:
+                urls.add(url)
+
+        # 続きが無ければ完了
+        if not data.get("has_more"):
+            print(f"[INFO] Notion登録済みURLを{len(urls)}件取得しました")
+            return urls
+
+        start_cursor = data.get("next_cursor")
+
+    print(f"[WARN] Notionの取得が上限({MAX_QUERY_PAGES}ページ)に達したため打ち切りました")
+    return urls
+
 
 def _paragraph_blocks(text: str) -> list[dict]:
     """要約テキストを2000字ごとに分割してparagraphブロックのリストにする。"""
@@ -30,41 +101,6 @@ def _paragraph_blocks(text: str) -> list[dict]:
             }
         )
     return blocks
-
-
-def page_exists_with_url(token: str, database_id: str, url: str) -> bool:
-    """
-    同じURLのページがNotionデータベースに既に存在するか判定する。
-    存在すれば True。URLが空、またはクエリに失敗した場合は False を返す
-    （書き込みを止めてしまわないよう、判定できないときは「未登録」扱いにする）。
-    """
-    if not url:
-        return False
-
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Notion-Version": NOTION_API_VERSION,
-        "Content-Type": "application/json",
-    }
-
-    payload = {
-        "filter": {"property": PROP_URL, "url": {"equals": url}},
-        "page_size": 1,
-    }
-
-    response = requests.post(
-        f"{NOTION_API_BASE}/databases/{database_id}/query",
-        headers=headers,
-        json=payload,
-    )
-
-    if response.status_code != 200:
-        print(
-            f"[WARN] Notion重複チェックに失敗しました (status: {response.status_code})\n{response.text}"
-        )
-        return False
-
-    return bool(response.json().get("results"))
 
 
 def create_summary_page(
