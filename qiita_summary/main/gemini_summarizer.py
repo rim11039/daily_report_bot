@@ -2,6 +2,7 @@ import time
 
 from google import genai
 from google.genai import types, errors
+from loguru import logger
 
 # 使用するGeminiモデル (すべて無料枠対象・動作確認済み)。
 # 左から順に試し、混雑(503)などでリトライも尽きたら次のモデルにフォールバックする。
@@ -46,7 +47,7 @@ def summarize_article(title: str, body: str) -> str:
     try:
         client = genai.Client()  # GEMINI_API_KEY / GOOGLE_API_KEY を環境変数から読む
     except Exception as e:  # noqa: BLE001 - botを止めないため予期せぬ例外も握る
-        print(f"[ERROR] Geminiクライアントの初期化に失敗しました: {e}")
+        logger.exception("Geminiクライアントの初期化に失敗しました")
         return f"(要約の生成に失敗しました: {e})"
 
     last_error = None
@@ -70,21 +71,23 @@ def summarize_article(title: str, body: str) -> str:
                 last_error = e
                 if getattr(e, "code", None) in RETRYABLE_STATUS and attempt < MAX_RETRIES:
                     wait = 2**attempt  # 2, 4秒
-                    print(
-                        f"[WARN] Gemini一時エラー({e.code}) model={model}。"
+                    logger.warning(
+                        f"Gemini一時エラー({e.code}) model={model}。"
                         f"{wait}秒後にリトライ ({attempt}/{MAX_RETRIES})"
                     )
                     time.sleep(wait)
                     continue
                 # このモデルは諦めて次のモデルへフォールバック
-                print(f"[WARN] model={model} で失敗({getattr(e, 'code', '?')})。次のモデルを試します。")
+                logger.warning(
+                    f"model={model} で失敗({getattr(e, 'code', '?')})。次のモデルを試します。"
+                )
                 break
             except Exception as e:  # noqa: BLE001 - 予期せぬ例外も次モデルへ
                 last_error = e
-                print(f"[WARN] model={model} で予期せぬエラー: {e}。次のモデルを試します。")
+                logger.warning(f"model={model} で予期せぬエラー: {e}。次のモデルを試します。")
                 break
 
-    print(f"[ERROR] すべてのモデルでGemini要約に失敗しました: {last_error}")
+    logger.error(f"すべてのモデルでGemini要約に失敗しました: {last_error}")
     return f"(要約の生成に失敗しました: {last_error})"
 
 
