@@ -1,6 +1,8 @@
 import requests
 from datetime import datetime, timedelta
 
+from loguru import logger
+
 # 1回のリクエストで取得する件数 (QiitaAPIの上限は100)
 PER_PAGE = 100
 
@@ -36,8 +38,8 @@ def get_qiita_trend_items(today: datetime, search_weeks: int, search_stocks: int
         )
         response.raise_for_status()  # エラーがあれば例外を発生させる
         items: list = response.json()
-    except requests.exceptions.RequestException as e:
-        print(f"[ERROR] Qiitaのデータ取得に失敗しました: {e}")
+    except requests.exceptions.RequestException:
+        logger.exception("Qiitaのデータ取得に失敗しました")
         return []
 
     results: list[dict] = []
@@ -55,6 +57,8 @@ def get_qiita_trend_items(today: datetime, search_weeks: int, search_stocks: int
     # QiitaAPIは作成日の降順でしか返さず、ソート指定にも対応していないため、
     # 人気順に扱えるようLGTM数の多い順にこちらで並べ替える
     results.sort(key=lambda x: x["likes"], reverse=True)
+
+    logger.info(f"Qiitaから{len(results)}件取得しました")
 
     return results
 

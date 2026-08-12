@@ -21,7 +21,7 @@ jobs:
           python-version: '3.12'
 
       - name: Install dependencies
-        run: pip install requests line-bot-sdk python-dotenv
+        run: pip install requests line-bot-sdk python-dotenv loguru
 
       - name: Run script
         env:
@@ -59,7 +59,7 @@ jobs:
           python-version: '3.12'
 
       - name: Install dependencies
-        run: pip install requests line-bot-sdk python-dotenv google-genai
+        run: pip install requests line-bot-sdk python-dotenv google-genai loguru
 
       - name: Run script
         env:

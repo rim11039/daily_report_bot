@@ -1,7 +1,10 @@
 import os
+import sys
 from datetime import datetime
+from pathlib import Path
 
 from dotenv import load_dotenv
+from loguru import logger
 from qiita_checker import get_qiita_trend_items
 from gemini_summarizer import summarize_article
 from notion_writer import create_summary_page, fetch_registered_urls
@@ -13,6 +16,9 @@ from linebot.exceptions import LineBotApiError
 load_dotenv()
 
 NUMBER_OF_ARTICLES = 3
+
+# ログの出力先ディレクトリ (qiita_summary/logs/)
+LOG_DIR = Path(__file__).resolve().parent.parent / "logs"
 
 # 検索条件を優先順に定義する。
 # ストック数がトレンドの指標なので、閾値は極力維持し、まず期間を延ばして母数を稼ぐ。
@@ -29,8 +35,29 @@ USER_ID = os.getenv("LINE_USER_ID")
 NOTION_TOKEN = os.getenv("NOTION_TOKEN")
 QIITA_SUMMARY_DATABASE_ID = os.getenv("QIITA_SUMMARY_DATABASE_ID")
 
+def _setup_logger():
+    """
+    loguruの出力先を設定する。
+
+    デフォルトのハンドラを外し、コンソール(stderr)とファイルの2系統に出す。
+    コンソールの出力レベルは LOG_LEVEL 環境変数で変更できる。
+    スキップした記事など件数の多いログは DEBUG に落としてあるため、
+    詳細を追いたいときは LOG_LEVEL=DEBUG を指定する。
+    """
+    logger.remove()  # loguruが最初から持っているstderrハンドラを外す
+    logger.add(sys.stderr, level=os.getenv("LOG_LEVEL", "INFO"))
+    logger.add(
+        LOG_DIR / "qiita_summary_{time:YYYY-MM-DD}.log",
+        level="DEBUG",  # ファイルには常に詳細まで残す
+        rotation="1 week",
+        retention="1 month",
+        encoding="utf-8",  # Windowsでも日本語が文字化けしないようにする
+    )
+
+
 def main():
-    print("Qiitaトレンド記事を取得中...\n")
+    _setup_logger()
+    logger.info("Qiitaトレンド記事の取得を開始します")
     today = datetime.now()
 
     # 1. Notionに登録済みのURLを一括で取得する
@@ -38,6 +65,7 @@ def main():
     registered_urls = fetch_registered_urls(NOTION_TOKEN, QIITA_SUMMARY_DATABASE_ID)
     if registered_urls is None:
         # 登録状況が分からないまま進めると同じ記事を二重に登録してしまうため中止する
+        logger.error("Notionの登録状況を取得できなかったため、処理を中止します")
         _send_line(
             "📚 本日のQiitaトレンド要約\n\n"
             "Notionの登録状況を取得できなかったため、処理を中止しました。"
@@ -48,6 +76,7 @@ def main():
     articles = _collect_articles(today, registered_urls)
 
     if not articles:
+        logger.warning("要約対象の記事が1件も見つかりませんでした")
         _send_line("📚 本日のQiitaトレンド要約\n\n該当する記事が見つかりませんでした。")
         return
 
@@ -76,7 +105,7 @@ def _collect_articles(today: datetime, registered_urls: set[str]) -> list[dict]:
     checked_urls: set[str] = set()
 
     for search_weeks, search_stocks in SEARCH_CONDITIONS:
-        print(f"[INFO] 検索: 直近{search_weeks}週間 / ストック{search_stocks}以上")
+        logger.info(f"検索: 直近{search_weeks}週間 / ストック{search_stocks}以上")
         get_articles = get_qiita_trend_items(today, search_weeks, search_stocks)
 
         # LGTM数の多い順に並んでいるため、上から順に未登録の記事を拾っていく
@@ -90,20 +119,21 @@ def _collect_articles(today: datetime, registered_urls: set[str]) -> list[dict]:
 
             # 同一URLのページが既にNotionにある場合は要約せず、次の記事を対象にする
             if url in registered_urls:
-                print(f"  登録済みのためスキップ: {title}")
+                # 1回の検索で最大100件スキップし得るため、通常は出さないDEBUGにする
+                logger.debug(f"登録済みのためスキップ: {title}")
                 continue
 
             summary_articles.append(article)
-            print(f"  要約対象 ({len(summary_articles)}/{NUMBER_OF_ARTICLES}): {title}")
+            logger.info(f"要約対象 ({len(summary_articles)}/{NUMBER_OF_ARTICLES}): {title}")
 
             if len(summary_articles) >= NUMBER_OF_ARTICLES:
                 return summary_articles
 
         # 全ての記事がNotionに記載されていた場合は条件を広げて検索からやり直す
-        print("[INFO] 規定数に達しなかったため、条件を広げて再検索します")
+        logger.info("規定数に達しなかったため、条件を広げて再検索します")
 
-    print(
-        f"[WARN] 条件を広げましたが{NUMBER_OF_ARTICLES}件に届きませんでした "
+    logger.warning(
+        f"条件を広げましたが{NUMBER_OF_ARTICLES}件に届きませんでした "
         f"({len(summary_articles)}件)"
     )
     return summary_articles
@@ -125,10 +155,10 @@ def _create_message_text(articles: list[dict], today: str) -> str:
         url = article["url"]
         likes = article["likes"]
 
-        print(f"[{i}/{articles_len}] 要約中: {title}")
+        logger.info(f"[{i}/{articles_len}] 要約中: {title}")
         summary = summarize_article(title, article["body"])
 
-        print(f"[{i}/{articles_len}] Notionに書き込み中...")
+        logger.info(f"[{i}/{articles_len}] Notionに書き込み中...")
         ok = create_summary_page(
             token=NOTION_TOKEN,
             database_id=QIITA_SUMMARY_DATABASE_ID,
@@ -139,7 +169,7 @@ def _create_message_text(articles: list[dict], today: str) -> str:
             date=today,
         )
         if not ok:
-            print(f"[WARN] Notionへの書き込みに失敗しました: {title}")
+            logger.warning(f"Notionへの書き込みに失敗しました: {title}")
 
         # LINE用: タイトル・URL・要約の先頭行
         # 検索期間を広げると古い記事も対象になるため、投稿日もあわせて表示する
@@ -157,13 +187,14 @@ def _send_line(message_text: str):
     main関数で作成したLINEの本文を
     LineBotApiを使用して送信する。
     """
-    print("【LINEに送信しています...】")
+    logger.info("LINEに送信しています...")
     try:
         line_bot_api = LineBotApi(CHANNEL_ACCESS_TOKEN)
         line_bot_api.push_message(USER_ID, TextSendMessage(text=message_text))
-        print("[SUCCESS] 送信完了しました！")
-    except LineBotApiError as e:
-        print(f"[ERROR] 送信エラーが発生しました: {e}")
+        logger.success("LINEへの送信が完了しました")
+    except LineBotApiError:
+        # スタックトレースまで残したいので exception を使う
+        logger.exception("LINEへの送信に失敗しました")
 
 
 if __name__ == "__main__":
