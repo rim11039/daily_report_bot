@@ -1,4 +1,5 @@
 import requests
+from loguru import logger
 
 NOTION_API_BASE = "https://api.notion.com/v1"
 NOTION_API_VERSION = "2022-06-28"
@@ -56,13 +57,13 @@ def fetch_registered_urls(token: str, database_id: str) -> set[str] | None:
                 json=payload,
                 timeout=REQUEST_TIMEOUT,
             )
-        except requests.exceptions.RequestException as e:
-            print(f"[ERROR] Notion登録済みURLの取得に失敗しました: {e}")
+        except requests.exceptions.RequestException:
+            logger.exception("Notion登録済みURLの取得に失敗しました")
             return None
 
         if response.status_code != 200:
-            print(
-                f"[ERROR] Notion登録済みURLの取得に失敗しました "
+            logger.error(
+                f"Notion登録済みURLの取得に失敗しました "
                 f"(status: {response.status_code})\n{response.text}"
             )
             return None
@@ -75,12 +76,12 @@ def fetch_registered_urls(token: str, database_id: str) -> set[str] | None:
 
         # 続きが無ければ完了
         if not data.get("has_more"):
-            print(f"[INFO] Notion登録済みURLを{len(urls)}件取得しました")
+            logger.info(f"Notion登録済みURLを{len(urls)}件取得しました")
             return urls
 
         start_cursor = data.get("next_cursor")
 
-    print(f"[WARN] Notionの取得が上限({MAX_QUERY_PAGES}ページ)に達したため打ち切りました")
+    logger.warning(f"Notionの取得が上限({MAX_QUERY_PAGES}ページ)に達したため打ち切りました")
     return urls
 
 
@@ -143,8 +144,8 @@ def create_summary_page(
     )
 
     if response.status_code != 200:
-        print(
-            f"[ERROR] Notion書き込みエラー (status: {response.status_code})\n{response.text}"
+        logger.error(
+            f"Notion書き込みエラー (status: {response.status_code})\n{response.text}"
         )
         return False
 
