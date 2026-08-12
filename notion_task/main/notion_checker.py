@@ -1,4 +1,5 @@
 import requests
+from loguru import logger
 
 NOTION_API_BASE = "https://api.notion.com/v1"
 NOTION_API_VERSION = "2022-06-28"
@@ -30,10 +31,14 @@ def get_notion_tasks(token: str, database_id: str) -> str:
         json=payload,
     )
 
+    # 以降の戻り値はそのままLINEの本文になるため、
+    # 手元で状況を追えるようログにも同じ内容を残す
     if response.status_code != 200:
+        logger.error(f"Notion取得エラー (status: {response.status_code})\n{response.text}")
         return f"[ERROR] Notion取得エラー (status: {response.status_code})\n{response.text}"
 
     results = response.json().get("results", [])
+    logger.info(f"Notionから{len(results)}件のタスクを取得しました")
 
     if not results:
         return "[INFO] タスクはありません！"
@@ -52,6 +57,8 @@ def get_notion_tasks(token: str, database_id: str) -> str:
         # 「完了 🙌」以外を抽出
         if status != "完了 🙌":
             incomplete_tasks.append(item)
+
+    logger.info(f"未完了タスクは{len(incomplete_tasks)}件です")
 
     if not incomplete_tasks:
         return "[INFO] 未完了タスクはありません！"
