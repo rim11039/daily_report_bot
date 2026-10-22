@@ -75,7 +75,18 @@ def test_get_notion_tasks_api_error(mock_post):
 
     assert "[ERROR] Notion取得エラー" in result
     assert "status: 401" in result
-    assert "unauthorized" in result
+    # レスポンス本文はLINEに出さず、ログにだけ残す
+    assert "unauthorized" not in result
+
+
+@patch.object(notion_checker.requests, "post")
+def test_get_notion_tasks_connection_error(mock_post):
+    """Notionに接続できない場合は例外を投げずエラーメッセージを返すテスト"""
+    mock_post.side_effect = notion_checker.requests.exceptions.ConnectionError("boom")
+
+    result = notion_checker.get_notion_tasks("tok", "db")
+
+    assert result == "[ERROR] Notionへの接続に失敗しました"
 
 
 @patch.object(notion_checker.requests, "post")

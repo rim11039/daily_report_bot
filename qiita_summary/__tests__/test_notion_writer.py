@@ -169,3 +169,21 @@ def test_create_summary_page_failure(mock_post):
     )
 
     assert result is False
+
+
+@patch.object(notion_writer.requests, "post")
+def test_create_summary_page_connection_error(mock_post):
+    """Notionに接続できない場合は例外を投げずFalseを返すテスト"""
+    mock_post.side_effect = notion_writer.requests.exceptions.ConnectionError("boom")
+
+    result = notion_writer.create_summary_page(
+        token="tok",
+        database_id="db",
+        title="タイトル",
+        url="https://qiita.com/test",
+        likes=1,
+        summary="要約",
+        date="2026-07-19",
+    )
+
+    assert result is False

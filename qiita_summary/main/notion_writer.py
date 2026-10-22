@@ -137,11 +137,15 @@ def create_summary_page(
         "children": _paragraph_blocks(summary),
     }
 
-    response = requests.post(
-        f"{NOTION_API_BASE}/pages",
-        headers=headers,
-        json=payload,
-    )
+    try:
+        response = requests.post(
+            f"{NOTION_API_BASE}/pages",
+            headers=headers,
+            json=payload,
+        )
+    except requests.exceptions.RequestException:
+        logger.exception("Notionへの書き込み時に接続に失敗しました")
+        return False
 
     if response.status_code != 200:
         logger.error(
