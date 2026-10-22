@@ -7,21 +7,25 @@ on:
   # GitHubの画面上から手動で実行できるようにする
   workflow_dispatch:
 
+# GITHUB_TOKEN は使わないため、すべての権限を外しておく
+permissions: {}
+
 jobs:
   notion-task-bot:
     runs-on: ubuntu-latest
 
     steps:
+      # タグは後から付け替えられるため、アクションはコミットSHAで固定する
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: '3.14'
 
       - name: Install dependencies
-        run: pip install requests line-bot-sdk python-dotenv loguru
+        run: pip install -r notion_task/requirements.txt
 
       - name: Run script
         env:
@@ -32,14 +36,18 @@ jobs:
         working-directory: notion_task
         run: python main/main.py
 
+      # Secretsはスクリプトに直接埋め込まず、環境変数経由で渡す
       - name: Send LINE message on failure
         if: failure()
+        env:
+          LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
+          LINE_USER_ID: ${{ secrets.LINE_USER_ID }}
         run: |
           curl -X POST https://api.line.me/v2/bot/message/push \
           -H "Content-Type: application/json" \
-          -H "Authorization: Bearer ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}" \
+          -H "Authorization: Bearer $LINE_CHANNEL_ACCESS_TOKEN" \
           -d '{
-            "to": "${{ secrets.LINE_USER_ID }}",
+            "to": "'"$LINE_USER_ID"'",
             "messages": [{
               "type": "text",
               "text": "⚠️ Notionタスクbotの実行が失敗しました。エラーログを確認してください。"
@@ -51,15 +59,15 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
-          python-version: '3.12'
+          python-version: '3.14'
 
       - name: Install dependencies
-        run: pip install requests line-bot-sdk python-dotenv google-genai loguru
+        run: pip install -r qiita_summary/requirements.txt
 
       - name: Run script
         env:
@@ -73,12 +81,15 @@ jobs:
 
       - name: Send LINE message on failure
         if: failure()
+        env:
+          LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
+          LINE_USER_ID: ${{ secrets.LINE_USER_ID }}
         run: |
           curl -X POST https://api.line.me/v2/bot/message/push \
           -H "Content-Type: application/json" \
-          -H "Authorization: Bearer ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}" \
+          -H "Authorization: Bearer $LINE_CHANNEL_ACCESS_TOKEN" \
           -d '{
-            "to": "${{ secrets.LINE_USER_ID }}",
+            "to": "'"$LINE_USER_ID"'",
             "messages": [{
               "type": "text",
               "text": "⚠️ Qiita要約botの実行が失敗しました。エラーログを確認してください。"

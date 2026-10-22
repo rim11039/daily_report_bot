@@ -25,17 +25,21 @@ def get_notion_tasks(token: str, database_id: str) -> str:
         ],
     }
 
-    response = requests.post(
-        f"{NOTION_API_BASE}/databases/{database_id}/query",
-        headers=headers,
-        json=payload,
-    )
-
     # 以降の戻り値はそのままLINEの本文になるため、
-    # 手元で状況を追えるようログにも同じ内容を残す
+    # エラーの詳細はログにだけ残し、LINEには定型文とステータスコードのみを返す
+    try:
+        response = requests.post(
+            f"{NOTION_API_BASE}/databases/{database_id}/query",
+            headers=headers,
+            json=payload,
+        )
+    except requests.exceptions.RequestException:
+        logger.exception("Notionへの接続に失敗しました")
+        return "[ERROR] Notionへの接続に失敗しました"
+
     if response.status_code != 200:
         logger.error(f"Notion取得エラー (status: {response.status_code})\n{response.text}")
-        return f"[ERROR] Notion取得エラー (status: {response.status_code})\n{response.text}"
+        return f"[ERROR] Notion取得エラー (status: {response.status_code})"
 
     results = response.json().get("results", [])
     logger.info(f"Notionから{len(results)}件のタスクを取得しました")

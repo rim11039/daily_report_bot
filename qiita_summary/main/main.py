@@ -3,6 +3,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+import requests
 from dotenv import load_dotenv
 from loguru import logger
 from qiita_checker import get_qiita_trend_items
@@ -30,6 +31,16 @@ SEARCH_CONDITIONS: list[tuple[int, int]] = [
     (8, 10),   # 最後の保険として閾値を下げる
 ]
 
+# 実行に必須の環境変数。1つでも欠けていれば起動時に中止する
+REQUIRED_ENV_VARS = [
+    "LINE_CHANNEL_ACCESS_TOKEN",
+    "LINE_USER_ID",
+    "NOTION_TOKEN",
+    "QIITA_SUMMARY_DATABASE_ID",
+]
+# Geminiのクライアントはどちらか一方のAPIキーがあれば動く
+GEMINI_API_KEY_ENV_VARS = ["GEMINI_API_KEY", "GOOGLE_API_KEY"]
+
 CHANNEL_ACCESS_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
 USER_ID = os.getenv("LINE_USER_ID")
 NOTION_TOKEN = os.getenv("NOTION_TOKEN")
@@ -55,8 +66,24 @@ def _setup_logger():
     )
 
 
+def _check_env():
+    """
+    必須の環境変数が設定されているか確認する。
+
+    未設定のまま進むと "Bearer None" のような不正な値でAPIを呼んでしまうため、
+    欠けている場合は異常終了させ、GitHub Actionsの失敗通知に乗せる。
+    """
+    missing = [name for name in REQUIRED_ENV_VARS if not os.getenv(name)]
+    if not any(os.getenv(name) for name in GEMINI_API_KEY_ENV_VARS):
+        missing.append(" または ".join(GEMINI_API_KEY_ENV_VARS))
+    if missing:
+        logger.error(f"必須の環境変数が設定されていません: {', '.join(missing)}")
+        sys.exit(1)
+
+
 def main():
     _setup_logger()
+    _check_env()
     logger.info("Qiitaトレンド記事の取得を開始します")
     today = datetime.now()
 
@@ -195,6 +222,12 @@ def _send_line(message_text: str):
     except LineBotApiError:
         # スタックトレースまで残したいので exception を使う
         logger.exception("LINEへの送信に失敗しました")
+        # 通知が届かないことに気付けるよう、GitHub Actionsを失敗扱いにする
+        sys.exit(1)
+    except requests.exceptions.RequestException:
+        # LineBotApiは内部でrequestsを使うため、接続エラーはこちらで飛んでくる
+        logger.exception("LINEへの接続に失敗しました")
+        sys.exit(1)
 
 
 if __name__ == "__main__":

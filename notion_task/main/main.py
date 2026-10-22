@@ -2,6 +2,7 @@ import os
 import sys
 from pathlib import Path
 
+import requests
 from dotenv import load_dotenv
 from loguru import logger
 from notion_checker import get_notion_tasks
@@ -10,6 +11,14 @@ from linebot.models import TextSendMessage
 from linebot.exceptions import LineBotApiError
 
 load_dotenv()
+
+# 実行に必須の環境変数。1つでも欠けていれば起動時に中止する
+REQUIRED_ENV_VARS = [
+    "LINE_CHANNEL_ACCESS_TOKEN",
+    "LINE_USER_ID",
+    "NOTION_TOKEN",
+    "NOTION_DATABASE_ID",
+]
 
 CHANNEL_ACCESS_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
 USER_ID = os.getenv("LINE_USER_ID")
@@ -38,8 +47,22 @@ def _setup_logger():
     )
 
 
+def _check_env():
+    """
+    必須の環境変数が設定されているか確認する。
+
+    未設定のまま進むと "Bearer None" のような不正な値でAPIを呼んでしまうため、
+    欠けている場合は異常終了させ、GitHub Actionsの失敗通知に乗せる。
+    """
+    missing = [name for name in REQUIRED_ENV_VARS if not os.getenv(name)]
+    if missing:
+        logger.error(f"必須の環境変数が設定されていません: {', '.join(missing)}")
+        sys.exit(1)
+
+
 def main():
     _setup_logger()
+    _check_env()
     logger.info("Notionからタスクを取得します")
 
     task_info = get_notion_tasks(NOTION_TOKEN, NOTION_DATABASE_ID)
@@ -55,6 +78,12 @@ def main():
     except LineBotApiError:
         # スタックトレースまで残したいので exception を使う
         logger.exception("LINEへの送信に失敗しました")
+        # 通知が届かないことに気付けるよう、GitHub Actionsを失敗扱いにする
+        sys.exit(1)
+    except requests.exceptions.RequestException:
+        # LineBotApiは内部でrequestsを使うため、接続エラーはこちらで飛んでくる
+        logger.exception("LINEへの接続に失敗しました")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
