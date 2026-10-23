@@ -1,0 +1,15 @@
+version: 2
+updates:
+  # ワークフローで使っているアクション（SHA固定）の更新
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+
+  # Pythonの依存パッケージの更新
+  - package-ecosystem: "pip"
+    directories:
+      - "/notion_task"
+      - "/qiita_summary"
+    schedule:
+      interval: "weekly"
